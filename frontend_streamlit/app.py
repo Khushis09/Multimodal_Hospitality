@@ -1,100 +1,142 @@
 import streamlit as st
 import speech_recognition as sr
 import requests
+import time
+import urllib.parse
 
+# ------------------ CONFIG ------------------
 st.set_page_config(page_title="Multimodal Hospitality Creator", layout="wide")
 
-# Background
+# ------------------ HIDE STREAMLIT UI ------------------
 st.markdown("""
 <style>
-body {
-    background: linear-gradient(135deg, #0f172a, #1e293b);
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+# ------------------ SESSION STATE ------------------
+if "cache" not in st.session_state:
+    st.session_state.cache = {}
+
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# ------------------ FAST API CALL ------------------
+@st.cache_data(show_spinner=False)
+def fetch_description(prompt):
+    try:
+        url = f"http://127.0.0.1:8000/generate?prompt={urllib.parse.quote(prompt)}"
+        res = requests.get(url, timeout=20)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        return {
+            "description": f"❌ Backend Error: {str(e)}",
+            "image": None
+        }
+
+# ------------------ VOICE INPUT ------------------
+def voice_input():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        st.info("🎤 Speak now...")
+        audio = r.listen(source)
+
+    try:
+        return r.recognize_google(audio)
+    except:
+        return ""
+
+# ------------------ UI STYLING ------------------
+st.markdown("""
+<style>
+.stApp {
+    background: radial-gradient(circle at top, #0f172a, #020617);
     color: white;
 }
 .glass {
-    background: rgba(255,255,255,0.1);
-    padding: 20px;
+    background: rgba(255,255,255,0.08);
+    padding: 25px;
     border-radius: 20px;
-    backdrop-filter: blur(15px);
+    backdrop-filter: blur(20px);
 }
-            .stApp {
-    background: linear-gradient(135deg, #0f172a, #020617);
-    color: white;
-}
-
-.block-container {
-    padding-top: 2rem;
-    max-width: 1200px;
-}
-
 .stButton>button {
     border-radius: 12px;
-    background: linear-gradient(45deg, #3b82f6, #9333ea);
+    background: linear-gradient(45deg, #6366f1, #9333ea);
     color: white;
-    padding: 10px 20px;
-    border: none;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("✨ Multimodal Hospitality Creator")
 
-# Prompt Input
+# ------------------ INPUT ------------------
 prompt = st.text_input("Enter your idea")
 
-# Voice Input
 if st.button("🎤 Speak"):
     spoken = voice_input()
     if spoken:
         prompt = spoken
         st.success(f"You said: {prompt}")
-def voice_input():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.info("🎤 बोलो...")
-        audio = r.listen(source)
 
-    try:
-        text = r.recognize_google(audio)
-        return text
-    except:
-        return ""
-
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# Generate
+# ------------------ GENERATE ------------------
 if st.button("Generate"):
 
-    with st.spinner("Generating AI magic..."):
+    if not prompt:
+        st.warning("Enter prompt")
+        st.stop()
+
+    # CACHE FIRST
+    if prompt in st.session_state.cache:
+        data = st.session_state.cache[prompt]
+    else:
+        data = fetch_description(prompt)
+        st.session_state.cache[prompt] = data
+
+    # FAST IMAGE (Pollinations)
+    enhanced_prompt = f"luxury hotel {prompt} ultra realistic 4k cinematic"
+    image_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(enhanced_prompt)}"
+
+    col1, col2 = st.columns(2)
+
+    # ---------------- IMAGE ----------------
+    with col1:
+        st.markdown("### 🖼️ AI Design")
+
+        st.image(image_url, use_container_width=True)
+
         try:
-            res = requests.get(f"http://127.0.0.1:8000/generate?prompt={prompt}")
-            data = res.json()
-
-            st.session_state.history.append(prompt)
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("### 📄 Description")
-                st.markdown(f"<div class='glass'>{data['description']}</div>", unsafe_allow_html=True)
-
-            with col2:
-                st.markdown("### 🖼️ Image")
-                if data["image"]:
-                    st.image(data["image"])
-
-                    st.download_button(
-                        "Download Image",
-                        requests.get(data["image"]).content,
-                        file_name="design.png"
-                    )
-
+            img_bytes = requests.get(image_url, timeout=10).content
+            st.download_button(
+                "📥 Download",
+                img_bytes,
+                file_name="design.png",
+                mime="image/png"
+            )
         except:
-            st.error("Backend not running")
+            st.warning("Download failed")
 
-# History
+    # ---------------- DESCRIPTION ----------------
+    with col2:
+        st.markdown("### 📝 Description")
+
+        placeholder = st.empty()
+        placeholder.markdown("⏳ Generating luxury experience...")
+
+        time.sleep(0.3)
+
+        placeholder.markdown(
+            f"<div class='glass'>{data['description']}</div>",
+            unsafe_allow_html=True
+        )
+
+    # SAVE HISTORY
+    if prompt not in st.session_state.history:
+        st.session_state.history.append(prompt)
+
+# ------------------ HISTORY ------------------
 st.markdown("### 🕒 History")
 for item in st.session_state.history[::-1]:
     st.markdown(f"- {item}")
-

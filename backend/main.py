@@ -1,16 +1,37 @@
 from fastapi import FastAPI
 from llm import generate_description
-from image_gen import generate_image
-import base64
+from vector_store import add_to_vector_store, search_similar
 
 app = FastAPI()
 
-@app.get("/generate")
-async def generate(prompt: str):
-    description = generate_description(prompt)
-    image_url = generate_image(prompt)
+# ------------------ HEALTH CHECK ------------------
+@app.get("/")
+def health():
+    return {"status": "Backend running 🚀"}
 
-    return {
-        "description": description,
-        "image": image_url
-    }
+# ------------------ GENERATE ------------------
+@app.get("/generate")
+def generate(prompt: str):
+    try:
+        similar = search_similar(prompt)
+
+        context = ""
+        if similar:
+            context = "Similar previous ideas:\n" + "\n".join(similar)
+
+        enhanced_prompt = context + "\n\n" + prompt
+
+        description = generate_description(enhanced_prompt)
+
+        add_to_vector_store(prompt)
+
+        return {
+            "description": description,
+            "image": None
+        }
+
+    except Exception as e:
+        return {
+            "description": f"❌ Backend Error: {str(e)}",
+            "image": None
+        }
