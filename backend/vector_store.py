@@ -1,34 +1,42 @@
+import os
+import warnings
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
 
-# Load embedding model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Suppress the warning
+warnings.filterwarnings("ignore", category=UserWarning)
 
-# Store data
-texts = []
-embeddings = []
+load_dotenv()
 
-# Initialize FAISS index
-dimension = 384
-index = faiss.IndexFlatL2(dimension)
+# Set token for HuggingFace from environment variable
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN:
+    os.environ["HF_TOKEN"] = HF_TOKEN
 
+# Load model
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+# In-memory storage for embeddings
+stored_embeddings = []
+stored_texts = []
 
 def add_to_vector_store(text):
-    global texts, embeddings
+    """Add text to vector store"""
+    embedding = model.encode(text)
+    stored_embeddings.append(embedding)
+    stored_texts.append(text)
 
-    embedding = model.encode([text])
-    index.add(np.array(embedding).astype('float32'))
-
-    texts.append(text)
-
-
-def search_similar(query, top_k=2):
-    if len(texts) == 0:
+def search_similar(prompt, top_k=3):
+    """Search for similar texts"""
+    if not stored_embeddings:
         return []
-
-    query_embedding = model.encode([query])
-    D, I = index.search(np.array(query_embedding).astype('float32'), top_k)
-
-    results = [texts[i] for i in I[0] if i < len(texts)]
-    return results
+    
+    query_embedding = model.encode(prompt)
+    
+    # Calculate cosine similarity
+    from sklearn.metrics.pairwise import cosine_similarity
+    similarities = cosine_similarity([query_embedding], stored_embeddings)[0]
+    
+    # Get top k results
+    top_indices = similarities.argsort()[-top_k:][::-1]
+    return [stored_texts[i] for i in top_indices if similarities[i] > 0.3]
